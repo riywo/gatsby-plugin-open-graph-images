@@ -6,7 +6,7 @@ const { join, dirname } = require("path");
 
 exports.generateOgImages = async (imageGenerationJobs) => {
   const servingUrl = await getServingUrl();
-  const browser = await puppeteer.launch();
+  const browser = await puppeteer.launch({args: ['--no-sandbox']});
   const page = await browser.newPage();
 
   for (const imageGenerationJob of imageGenerationJobs) {
