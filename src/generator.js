@@ -13,13 +13,19 @@ exports.generateOgImages = async (imageGenerationJobs) => {
     const { componentPath, imgPath, size } = imageGenerationJob;
     const componentUrl = `${servingUrl}/${componentPath}`;
 
-    await page.goto(componentUrl);
-    await page.setViewport(size);
+    await Promise.all([
+      page.waitForNavigation({waitUntil: ['load', 'networkidle2']}),
+      page.goto(componentUrl),
+      page.setViewport(size),
+    ]);
 
     ensureThatImageDirExists(imgPath);
     await page.screenshot({ path: imgPath, clip: { x: 0, y: 0, ...size } });
 
     fs.unlinkSync(join("public", componentPath, "index.html"));
+    fs.rmdirSync(join("public", componentPath));
+    fs.unlinkSync(join("public", "page-data", componentPath, "page-data.json"));
+    fs.rmdirSync(join("public", "page-data", componentPath));
 
     const printPath = `${imgPath.replace("public", "")} ${size.width}x${size.height}`;
     console.log(`🖼  created Image: ${printPath}`);
