@@ -1,37 +1,39 @@
-const puppeteer = require("puppeteer");
+const { Cluster } = require('puppeteer-cluster');
 const express = require("express");
+const os = require("os");
 const fs = require("fs");
+const fsPromises = fs.promises;
 const http = require("http");
 const { join, dirname } = require("path");
 
 exports.generateOgImages = async (imageGenerationJobs) => {
   const servingUrl = await getServingUrl();
-  const browser = await puppeteer.launch({args: ['--no-sandbox']});
-  const page = await browser.newPage();
-
-  for (const imageGenerationJob of imageGenerationJobs) {
-    const { componentPath, imgPath, size } = imageGenerationJob;
+  const cluster = await Cluster.launch({
+    concurrency: Cluster.CONCURRENCY_PAGE,
+    maxConcurrency: os.cpus().length,
+    puppeteerOptions: {
+      args: ['--no-sandbox']
+    }
+  });
+  await cluster.task(async ({ page, data: job }) => {
+    const { componentPath, imgPath, size } = job;
     const componentUrl = `${servingUrl}/${componentPath}`;
-
     await Promise.all([
       page.waitForNavigation({waitUntil: ['load', 'networkidle2']}),
       page.goto(componentUrl),
       page.setViewport(size),
+      ensureThatImageDirExists(imgPath)
     ]);
-
-    ensureThatImageDirExists(imgPath);
     await page.screenshot({ path: imgPath, clip: { x: 0, y: 0, ...size } });
-
-    fs.unlinkSync(join("public", componentPath, "index.html"));
-    fs.rmdirSync(join("public", componentPath));
-    fs.unlinkSync(join("public", "page-data", componentPath, "page-data.json"));
-    fs.rmdirSync(join("public", "page-data", componentPath));
-
+    await deleteTemporaryFiles(componentPath);
     const printPath = `${imgPath.replace("public", "")} ${size.width}x${size.height}`;
     console.log(`🖼  created Image: ${printPath}`);
+  });
+  for (const imageGenerationJob of imageGenerationJobs) {
+    cluster.queue(imageGenerationJob)
   }
-
-  await browser.close();
+  await cluster.idle();
+  await cluster.close();
 };
 
 const getServingUrl = async () => {
@@ -43,14 +45,21 @@ const getServingUrl = async () => {
 
 };
 
-const ensureThatImageDirExists = (path) => {
+const ensureThatImageDirExists = async (path) => {
   const targetDir = dirname(path);
 
   try {
-    fs.statSync(targetDir);
+    await fsPromises.stat(targetDir);
   } catch (err) {
     if (err.code === "ENOENT") {
-      fs.mkdirSync(targetDir);
+      await fsPromises.mkdir(targetDir);
     }
   }
 };
+
+const deleteTemporaryFiles = async (path) => {
+  await fsPromises.unlink(join("public", path, "index.html"));
+  await fsPromises.rmdir(join("public", path));
+  await fsPromises.unlink(join("public", "page-data", path, "page-data.json"));
+  await fsPromises.rmdir(join("public", "page-data", path));
+}
