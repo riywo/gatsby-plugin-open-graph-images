@@ -18,6 +18,8 @@ exports.generateOgImages = async (imageGenerationJobs) => {
   await cluster.task(async ({ page, data: job }) => {
     const { componentPath, imgPath, size } = job;
     const componentUrl = `${servingUrl}/${componentPath}`;
+    await page.setRequestInterception(true);
+    page.on('request', LocalRequestOnly(servingUrl));
     await Promise.all([
       page.waitForNavigation({waitUntil: ['load', 'networkidle2']}),
       page.goto(componentUrl),
@@ -45,6 +47,15 @@ const getServingUrl = async () => {
 
 };
 
+const LocalRequestOnly = (servingUrl) => (request) => {
+  const url = request.url();
+  if (url.startsWith(servingUrl) || url.startsWith("data:")) {
+    request.continue();
+  } else {
+    request.abort();
+  }
+};
+
 const ensureThatImageDirExists = async (path) => {
   const targetDir = dirname(path);
 
@@ -62,4 +73,5 @@ const deleteTemporaryFiles = async (path) => {
   await fsPromises.rmdir(join("public", path));
   await fsPromises.unlink(join("public", "page-data", path, "page-data.json"));
   await fsPromises.rmdir(join("public", "page-data", path));
-}
+};
+
